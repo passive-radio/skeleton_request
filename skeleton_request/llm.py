@@ -312,6 +312,7 @@ Return ONLY the JSON array, no other text."""
                     {"role": "user", "content": prompt},
                 ],
                 timeout = 180,
+                text =  { format: { type: "json_object" } },
             )
             return response.output_text or ""
         except Exception as e:
