@@ -1,0 +1,653 @@
+{
+  "version": 1,
+  "endpoint": {
+    "method": "GET",
+    "path_pattern": "/v1/images/search",
+    "query_keys": [
+      "limit"
+    ]
+  },
+  "request_schema": null,
+  "response_schemas_by_status": {
+    "200": {
+      "kind": "array",
+      "type_options": [
+        "array"
+      ],
+      "occurrences": 2,
+      "item": {
+        "kind": "object",
+        "type_options": [
+          "object"
+        ],
+        "occurrences": 10,
+        "children": {
+          "id": {
+            "kind": "string",
+            "type_options": [
+              "string"
+            ],
+            "occurrences": 10
+          },
+          "url": {
+            "kind": "string",
+            "type_options": [
+              "string"
+            ],
+            "occurrences": 10
+          },
+          "breeds": {
+            "kind": "array",
+            "type_options": [
+              "array"
+            ],
+            "occurrences": 10,
+            "item": {
+              "kind": "object",
+              "type_options": [
+                "object"
+              ],
+              "occurrences": 2,
+              "children": {
+                "id": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "cfa_url": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "origin": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "intelligence": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "temperament": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "weight": {
+                  "kind": "object",
+                  "type_options": [
+                    "object"
+                  ],
+                  "occurrences": 2,
+                  "children": {
+                    "metric": {
+                      "kind": "string",
+                      "type_options": [
+                        "string"
+                      ],
+                      "occurrences": 2
+                    },
+                    "imperial": {
+                      "kind": "string",
+                      "type_options": [
+                        "string"
+                      ],
+                      "occurrences": 2
+                    }
+                  }
+                },
+                "adaptability": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "health_issues": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "child_friendly": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "stranger_friendly": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "lap": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 1
+                },
+                "social_needs": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "experimental": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "name": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "dog_friendly": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "suppressed_tail": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "hypoallergenic": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "rex": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "country_codes": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "country_code": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "indoor": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "reference_image_id": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "grooming": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "energy_level": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "affection_level": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "description": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "vetstreet_url": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "natural": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "hairless": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "rare": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "shedding_level": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "short_legs": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                },
+                "alt_names": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "vcahospitals_url": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "life_span": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "wikipedia_url": {
+                  "kind": "string",
+                  "type_options": [
+                    "string"
+                  ],
+                  "occurrences": 2
+                },
+                "vocalisation": {
+                  "kind": "number",
+                  "type_options": [
+                    "number"
+                  ],
+                  "occurrences": 2
+                }
+              }
+            }
+          },
+          "height": {
+            "kind": "number",
+            "type_options": [
+              "number"
+            ],
+            "occurrences": 10
+          },
+          "width": {
+            "kind": "number",
+            "type_options": [
+              "number"
+            ],
+            "occurrences": 10
+          }
+        }
+      }
+    }
+  },
+  "request_type_hints": [],
+  "response_type_hints": {
+    "200": [
+      {
+        "path": "[].id",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Image item identifier",
+        "required": true
+      },
+      {
+        "path": "[].url",
+        "json_type": "string",
+        "domain_type": "url",
+        "description": "URL of the image resource",
+        "required": true
+      },
+      {
+        "path": "[].breeds[].id",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Breed identifier",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].cfa_url",
+        "json_type": "string",
+        "domain_type": "url",
+        "description": "CFA breed page URL",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].origin",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Origin country or region of the breed",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].intelligence",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Intelligence rating for the breed",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].temperament",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Typical temperament descriptors",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].weight.metric",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Metric weight range (as a string)",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].weight.imperial",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Imperial weight range (as a string)",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].adaptability",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Adaptability rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].health_issues",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Health issues rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].child_friendly",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Child friendliness rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].stranger_friendly",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Friendliness to strangers rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].lap",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Lap cat suitability indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].social_needs",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Social needs rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].experimental",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Experimental status indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].name",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Breed name",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].dog_friendly",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Dog-friendliness rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].suppressed_tail",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Suppressed tail indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].hypoallergenic",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Hypoallergenic indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].rex",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Rex coat indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].country_codes",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Country codes where breed is recognized",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].country_code",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Primary country code for breed",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].indoor",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Indoor living indicator or rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].reference_image_id",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Reference image ID for the breed",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].grooming",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Grooming needs rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].energy_level",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Energy level rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].affection_level",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Affection level rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].description",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Breed description",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].vetstreet_url",
+        "json_type": "string",
+        "domain_type": "url",
+        "description": "VetStreet breed page URL",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].natural",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Natural status indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].hairless",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Hairless status indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].rare",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Rarity indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].shedding_level",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Shedding level rating",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].short_legs",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Short legs indicator",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].alt_names",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Alternate breed names",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].vcahospitals_url",
+        "json_type": "string",
+        "domain_type": "url",
+        "description": "VCA Hospitals breed page URL",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].life_span",
+        "json_type": "string",
+        "domain_type": "text",
+        "description": "Estimated life span for the breed",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].wikipedia_url",
+        "json_type": "string",
+        "domain_type": "url",
+        "description": "Wikipedia page URL",
+        "required": false
+      },
+      {
+        "path": "[].breeds[].vocalisation",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Vocalisation level",
+        "required": false
+      },
+      {
+        "path": "[].height",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Image height in pixels",
+        "required": true
+      },
+      {
+        "path": "[].width",
+        "json_type": "number",
+        "domain_type": "integer",
+        "description": "Image width in pixels",
+        "required": true
+      }
+    ]
+  },
+  "meta": {
+    "trace_count": 2,
+    "status_codes": [
+      200
+    ]
+  }
+}

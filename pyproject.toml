@@ -1,0 +1,27 @@
+[project]
+name = "skeleton-request"
+version = "0.1.0"
+description = "HTTP API tracing and emulation library for offline development"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.31.0",
+    "openai>=2.8.0,<2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+skeleton = "skeleton_request.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "openai>=2.8.0",
+]
