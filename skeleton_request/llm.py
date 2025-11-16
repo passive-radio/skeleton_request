@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+import sys
 from typing import Any
 
 from openai import OpenAI
@@ -256,18 +257,20 @@ For each field, provide:
 2. description: Brief description of what this field represents
 3. required: Whether this field appears to be required (true/false)
 
-Return a JSON array with this format:
-[
-  {{
-    "path": "user.email",
-    "domain_type": "email",
-    "description": "User's email address",
-    "required": true
-  }},
-  ...
-]
+Return a JSON object with a 'results' array in this format:
+{{
+  "results": [
+    {{
+      "path": "user.email",
+      "domain_type": "email",
+      "description": "User's email address",
+      "required": true
+    }},
+    ...
+  ]
+}}
 
-Return ONLY the JSON array, no other text."""
+Return ONLY the JSON object, no other text."""
 
     def _build_inference_prompt_names_only(self, fields: list[dict[str, Any]]) -> str:
         """Build prompt for type inference from field names only."""
@@ -285,18 +288,20 @@ For each field, provide:
 2. description: Brief description of what this field likely represents
 3. required: Best guess whether this field is required (true/false)
 
-Return a JSON array with this format:
-[
-  {{
-    "path": "user.email",
-    "domain_type": "email",
-    "description": "Likely user's email address",
-    "required": true
-  }},
-  ...
-]
+Return a JSON object with a 'results' array in this format:
+{{
+  "results": [
+    {{
+      "path": "user.email",
+      "domain_type": "email",
+      "description": "Likely user's email address",
+      "required": true
+    }},
+    ...
+  ]
+}}
 
-Return ONLY the JSON array, no other text."""
+Return ONLY the JSON object, no other text."""
 
     def _call_llm(self, prompt: str) -> str:
         """Call LLM API and return response text."""
@@ -311,10 +316,28 @@ Return ONLY the JSON array, no other text."""
                     {"role": "system", "content": "You are an expert API schema analyzer."},
                     {"role": "user", "content": prompt},
                 ],
-                timeout = 180,
-                text =  { format: { type: "json_object" } },
+                timeout=180,
+                text={"format": {"type": "json_object"}},
             )
-            return response.output_text or ""
+
+            # Extract text from response.output structure
+            output = None
+            if hasattr(response, 'output') and response.output:
+                # response.output is a list, find the message with text
+                for item in response.output:
+                    if hasattr(item, 'content') and item.content:
+                        for content_item in item.content:
+                            if hasattr(content_item, 'text'):
+                                output = content_item.text
+                                break
+                    if output:
+                        break
+
+            if not output:
+                print(f"Warning: Could not extract text from response")
+                return ""
+
+            return output
         except Exception as e:
             print(f"LLM API call failed: {e}")
             return ""
@@ -328,18 +351,49 @@ Return ONLY the JSON array, no other text."""
         try:
             # Extract JSON array from response (handle markdown code blocks)
             json_str = llm_response.strip()
+
+            # Debug output
+            print(f"\n=== LLM Response (first 500 chars) ===")
+            print(json_str[:500])
+            print(f"=== End of LLM Response ===\n")
+
+            if not json_str:
+                print("Warning: Empty LLM response, using fallback")
+                raise ValueError("Empty response")
+
             if json_str.startswith("```"):
                 # Remove markdown code fences
                 lines = json_str.split("\n")
                 json_str = "\n".join(lines[1:-1])
 
-            results = json.loads(json_str)
+            parsed = json.loads(json_str)
+
+            # Handle both array and object with 'results' key
+            if isinstance(parsed, list):
+                results = parsed
+            elif isinstance(parsed, dict) and 'results' in parsed:
+                results = parsed['results']
+            else:
+                print(f"Warning: LLM response is neither a list nor an object with 'results', got type: {type(parsed)}")
+                print(f"Response content: {parsed}")
+                raise ValueError("Invalid response format")
+
+            # Ensure results is a list
+            if not isinstance(results, list):
+                print(f"Warning: Results is not a list, got type: {type(results)}")
+                raise ValueError("Results is not a list")
 
             field_infos = []
             for result in results:
+                # Ensure result is a dict
+                if not isinstance(result, dict):
+                    print(f"Warning: Result item is not a dict, got type: {type(result)}")
+                    continue
+
                 # Find matching field info
-                field_info = next((f for f in fields_info if f["path"] == result["path"]), None)
+                field_info = next((f for f in fields_info if f["path"] == result.get("path")), None)
                 if not field_info:
+                    print(f"Warning: No matching field info for path: {result.get('path')}")
                     continue
 
                 field_infos.append(
@@ -355,7 +409,9 @@ Return ONLY the JSON array, no other text."""
 
             return field_infos
 
-        except (json.JSONDecodeError, KeyError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+            print(f"Error parsing LLM response: {e}")
+            print(f"LLM response was: {llm_response[:200]}...")
             # Fallback: create basic FieldTypeInfo without domain types
             return [
                 FieldTypeInfo(

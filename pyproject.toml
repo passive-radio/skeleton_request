@@ -8,6 +8,25 @@ dependencies = [
     "requests>=2.31.0",
     "openai>=2.8.0,<2.9.0",
 ]
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+license = {text = "MIT"}
+keywords = ["api", "testing", "emulation", "tracing", "llm", "openai"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/skeleton-request"
+Repository = "https://github.com/YOUR_USERNAME/skeleton-request"
+Documentation = "https://github.com/YOUR_USERNAME/skeleton-request#readme"
+"Bug Tracker" = "https://github.com/YOUR_USERNAME/skeleton-request/issues"
 
 [project.optional-dependencies]
 dev = [

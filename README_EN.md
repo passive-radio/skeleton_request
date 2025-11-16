@@ -18,16 +18,38 @@ HTTP API tracing and emulation library for offline development.
 
 ## Installation
 
+### From GitHub (Recommended)
+
+```bash
+# Install latest version
+pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git
+
+# Or with specific version tag
+pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git@v0.1.0
+```
+
+### From Source
+
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/skeleton-request.git
+git clone https://github.com/YOUR_USERNAME/skeleton-request.git
 cd skeleton-request
 
 # Install with uv (requires Python 3.13+)
 uv sync
 
-# Or install in development mode
-uv pip install -e .
+# Or install with pip
+pip install -e .
+```
+
+### For Development
+
+```bash
+# Install with dev dependencies
+uv sync --extra dev
+
+# Or with pip
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
