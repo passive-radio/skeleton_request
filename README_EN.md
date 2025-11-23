@@ -22,18 +22,21 @@ HTTP API tracing and emulation library for offline development.
 
 ```bash
 # Install latest version
-pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git
+pip install git+https://github.com/passive-radio/skeleton_request.git
 
 # Or with specific version tag
-pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git@v0.1.0
+pip install git+https://github.com/passive-radio/skeleton_request.git@v0.1.0
+
+# Or with uv
+uv add git+https://github.com/passive-radio/skeleton_request.git
 ```
 
 ### From Source
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/skeleton-request.git
-cd skeleton-request
+git clone https://github.com/passive-radio/skeleton_request.git
+cd skeleton_request
 
 # Install with uv (requires Python 3.13+)
 uv sync
