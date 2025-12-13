@@ -1,7 +1,7 @@
 [project]
 name = "skeleton-request"
 version = "0.1.0"
-description = "HTTP API tracing and emulation library for offline development"
+description = "HTTP API tracing, emulation library for offline development and documentation of legacy API specifications."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -39,6 +39,9 @@ skeleton = "skeleton_request.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skeleton_request"]
 
 [dependency-groups]
 dev = [

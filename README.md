@@ -1,421 +1,662 @@
-## skeleton request モジュールの企画内容
+# skeleton-request
 
-Application/json HTTPリクエストとレスポンスをやってくれる Python request method をオーバーライドして、顧客先でしかアクセスできないAPIのリクエストを自社環境でエミュレーションするライブラリを作りたい。 request に @skeleton.trace decorator をつけると叩いたエンドポイント、日時、JSONリクエストとレスポンスの key 部分だけ実際の名称でどれだけネストしていても記録されて、ファイル出力される。key-value の value は保存されず、APIリクエストをエミュレーションするためのリクエスト例とレスポンスの実際の構造を再現できるようにする。顧客先で使える国内リージョンのLLMを活用して、型推論もさせて、APIエミュレーション用の独自形式のファイルに加えて、型推論結果を含むAPI仕様解説ドキュメントをペアで作成。 @skelton.emulate(emulation_env) デコレーター request を囲めば、 skelton.trace で保存したエミュレーション用データ emulation_env を参照して、同じリクエストエンドポイントの emulation 情報を自動的に取り出して、APIのリクエスト受付とレスポンスを再現する。 Simulate_value Optional パラメーター をオンにすると、非常にLightなLLMがそのエンドポイントのスキーマと型推論させた結果をもとに、value に入りそうな値を推測してダミーのレスポンスも返せる。 実装プランをよく考えて立てて。
+顧客環境でしかアクセスできない API を、自社環境でオフライン再現する HTTP トレース & エミュレーションライブラリ
 
-## 実装プラン
-
-まずざっくり言うと：
-
-* **TRACEモード**で実 API を叩きながら「キーだけの JSON スケルトン」を集める
-* それを CLI で集約＋国内リージョン LLM で型推論 →
-
-  * **エミュレーション用スキーマファイル**
-  * **人間向け API 仕様ドキュメント** を生成
-* **EMULATE モード**ではネットに出ずに、そのスキーマからレスポンスを組み立てる（必要なら LLM に値を埋めてもらう）
-
-という 3 層構造にするときれいにまとまります。
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Development Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
 
 ---
 
-## 0. 全体アーキテクチャのイメージ
+## 目次
 
-パッケージ構成イメージ：
-
-```text
-skeleton_request/
-  __init__.py        # trace/emulate デコレータ、簡易 API
-  tracing.py         # @trace 実装、TraceStore
-  schema.py          # SchemaNode 定義、マージ・正規化ロジック
-  storage.py         # ローカルトレースファイルへの書き込み
-  emulate.py         # EmulationEnv, @emulate, ResponseEmulated
-  llm.py             # LLMProvider 抽象、型推論オーケストレーション
-  cli.py             # `skeleton` CLI: 集約・スキーマ生成・Doc生成
-```
-
-モード：
-
-* **TRACE**： `@skeleton.trace` で実 API を叩きつつスキーマ収集
-* **EMULATE**： `@skeleton.emulate(env, simulate_value=...)` で API をエミュレーション
-* **PASSTHROUGH**（将来）：トレースもエミュもせず素通し
+- [概要](#概要)
+- [動作の仕組み](#動作の仕組み)
+- [クイックスタート](#クイックスタート)
+- [インストール](#インストール)
+- [基本的な使い方](#基本的な使い方)
+- [CLI リファレンス](#cli-リファレンス)
+- [設定](#設定)
+- [高度な使い方](#高度な使い方)
+- [実例](#実例)
+- [トラブルシューティング](#トラブルシューティング)
+- [プロジェクト構成](#プロジェクト構成)
+- [開発に参加する](#開発に参加する)
+- [ロードマップ](#ロードマップ)
+- [FAQ](#faq)
+- [ライセンスと謝辞](#ライセンスと謝辞)
+- [連絡先とサポート](#連絡先とサポート)
 
 ---
 
-## 1. データモデル設計
+## 概要
 
-### 1-1. EndpointKey（エンドポイント識別子）
+`skeleton-request` は、顧客環境でしかアクセスできない外部 API の構造を記録し、開発環境でオフライン再現するための Python ライブラリです。
 
-**同じエンドポイント**を識別するためのキーを定義します：
+**こんな課題を解決します:**
+- 顧客環境の API にアクセスできない自社開発環境でのテスト
+- API の仕様書が存在しない・古い場合の構造把握
+- セキュリティ要件の厳しい環境での API 挙動の再現
 
-```python
-@dataclass(frozen=True)
-class EndpointKey:
-    method: str              # "GET", "POST", ...
-    path_pattern: str        # "/users/{id}/orders/{order_id}"
-    query_keys: tuple[str]   # ("page", "limit") など
-    # host は不要なら除外（情報漏洩対策）
-```
-
-* `path_pattern` は `urlparse(url).path` を `/users/123` → `/users/{id}` のように正規化
-
-  * 正規表現 or heuristics: 数字だけ → `{id}`, UUID っぽい → `{uuid}` など
-* query パラメータも「値」ではなく **キーだけ**を持つ
-
-### 1-2. SchemaNode（JSON スケルトン）
-
-値は保存せず、**構造と型の候補**だけを持つツリー構造：
-
-```python
-@dataclass
-class SchemaNode:
-    kind: str  # "object" | "array" | "string" | "number" | "boolean" | "null"
-    children: dict[str, "SchemaNode"] | None = None
-    item: "SchemaNode | None" = None     # array 用
-    type_options: set[str] = field(default_factory=set)  # "string", "number", "null" ...
-    # メタ情報
-    occurrences: int = 0
-```
-
-* `extract_schema(json_obj)` で再帰的に構築
-* 同じフィールドに対して `SchemaNode.merge()` で union（`string` or `null` など）
-
-### 1-3. TraceRecord & EmulationSpec
-
-TRACE モードで一回の呼び出しから得る raw データ：
-
-```python
-@dataclass
-class TraceRecord:
-    endpoint: EndpointKey
-    timestamp: datetime
-    status_code: int
-    request_schema: SchemaNode | None
-    response_schema: SchemaNode | None
-```
-
-エミュレーション用に集約した結果：
-
-```python
-@dataclass
-class EmulationSpec:
-    version: int
-    endpoint: EndpointKey
-    request_schema: SchemaNode | None
-    response_schemas_by_status: dict[int, SchemaNode]
-    meta: dict[str, Any]  # 生成日時、説明など
-```
-
-`EmulationSpec` は `.skel.json` として保存。
+**主な特徴:**
+- **プライバシー保護設計** - JSON の構造（キー名）のみを記録し、実際の値は一切保存しない
+- **LLM 活用型推論** - OpenAI 互換 API（Azure OpenAI、Google Gemini など国内リージョン LLM）で正確な型推論
+- **デコレータベースの軽量 API** - 既存コードへの影響を最小化
+- **包括的なドキュメント生成** - `.skel.json` エミュレーションファイルと Markdown API 仕様書をペアで出力
 
 ---
 
-## 2. TRACE モード (@skeleton.trace)
+## 動作の仕組み
 
-### 2-1. 基本的なユースケース
+skeleton-request は 3 つのステップで動作します:
+
+### 1. TRACE モード（顧客環境）
+
+`@trace` デコレータで API 呼び出しを記録します。実際の値は一時的にのみ保持され、**構造（JSON キー）だけ**を NDJSON 形式で保存します。
 
 ```python
-import requests
-from skeleton import trace
-
 @trace
-def request(method: str, url: str, **kwargs):
+def api_request(method, url, **kwargs):
     return requests.request(method, url, **kwargs)
 ```
 
-アプリ側は `requests.request` の代わりにこの `request` を使うだけ。
+### 2. 集約 & 型推論（自社環境）
 
-### 2-2. デコレータの挙動
+`skeleton build-env` コマンドで複数のトレースを集約し、LLM で型推論を実行。`.skel.json` ファイルと Markdown 形式の API 仕様書を生成します。
 
-擬似コード：
+```bash
+skeleton build-env --infer-types
+```
+
+### 3. EMULATE モード（開発環境）
+
+`@emulate` デコレータで、**実際のネットワーク通信なし**に API レスポンスを再現します。
 
 ```python
-def trace(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        method, url = _extract_method_url(args, kwargs)
-        endpoint_key = build_endpoint_key(method, url, kwargs.get("params"))
-
-        # request body を抽出
-        req_json = None
-        if "json" in kwargs:
-            req_json = kwargs["json"]
-        else:
-            # data= が JSON string の場合もパース試行
-            req_json = try_parse_json(kwargs.get("data"))
-
-        start = time.time()
-        response = func(*args, **kwargs)
-        elapsed = time.time() - start
-
-        # response body を JSON として取得（エラーは無視）
-        res_json = try_response_json(response)
-
-        record = TraceRecord(
-            endpoint=endpoint_key,
-            timestamp=datetime.now(timezone.utc),
-            status_code=response.status_code,
-            request_schema=extract_schema(req_json),
-            response_schema=extract_schema(res_json),
-        )
-
-        TraceStore.current().add(record)
-        return response
-
-    return wrapper
+@emulate(env)
+def api_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
 ```
 
-### 2-3. TraceStore とファイル出力
+### プライバシー設計
 
-* `TraceStore` は in-memory に `TraceRecord` のリストを保持
-* 一定件数 or 一定時間ごと or `atexit` でファイルに flush
-* 出力形式案：**NDJSON**（1行1レコードの JSON）
-
-```json
-{"endpoint": {...}, "timestamp": "...", "status": 200, "request_schema": {...}, "response_schema": {...}}
-```
-
-※ 値は一切保存せず、headers も保存しない or ホワイトリスト方式
-
-### 2-4. スレッド・プロセス対応
-
-* `TraceStore` はスレッドセーフ（`threading.Lock`）に
-* multiprocess 環境ならプロセスごとに別ファイルへ出力してもよい
-  例: `trace-<pid>-<timestamp>.ndjson`
+- **トレースファイル**（`.ndjson`）には実際の値も含まれますが、`build-env --infer-types` 実行後は破棄可能
+- **最終的な `.skel.json`** にはスキーマと推論された型情報のみ
+- **`--key-names-only`** オプションで LLM に値を一切送信しない運用も可能
 
 ---
 
-## 3. トレース集約 & 型推論パイプライン
+## クイックスタート
 
-CLI: `skeleton build` みたいなコマンドで実行。
+### ステップ 1: インストール
 
-### 3-1. raw トレースから EmulationSpec を構築
+```bash
+# GitHub から直接インストール（推奨）
+pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git
 
-1. NDJSON を全走査
-2. `endpoint` ごとに `TraceRecord` をバケット
-3. 各バケットで：
-
-   * `request_schema` を `SchemaNode.merge()` でマージ
-   * `status_code` ごとに `response_schema` をマージ
-4. `EmulationSpec` に変換してメモリ上に保持
-
-これにより「同じエンドポイントを複数回叩いても」スキーマが補完/統合される。
-
-### 3-2. LLMProvider 抽象と型推論
-
-`llm.py` に LLMProvider インターフェイスだけ定義：
-
-```python
-class LLMProvider(Protocol):
-    def infer_types(
-        self,
-        endpoint: EndpointKey,
-        spec: EmulationSpec,
-        # optional: 実行環境内でのみ使う sample values
-        samples: dict[str, list[Any]] | None = None,
-    ) -> dict[str, Any]:
-        """Return inferred type info / field descriptions."""
+# または uv を使用（Python 3.13+）
+git clone https://github.com/YOUR_USERNAME/skeleton-request.git
+cd skeleton-request
+uv sync
 ```
 
-* 実装は**顧客環境側**で書いてもらう（国内リージョン LLM SDK など）
-* skeleton 側は `LLMProvider` を受け取って
+### ステップ 2: API 呼び出しの記録（TRACE モード）
 
-  * エンドポイントごとに `SchemaNode` をフラット化（パス `"user.email"` みたいに）
-  * key 名 + JSON 型情報 + （あれば）サンプル値を渡す
-  * 返却として「ドメイン型（email, datetime, amount）」「説明」「必須/任意」などを受け取る
+```python
+import requests
+from skeleton_request import trace
 
-### 3-3. 出力ファイル（2 種類）
+@trace
+def api_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
 
-#### ① エミュレーション用独自形式 (`.skel.json`)
+# 通常通り API を呼び出すだけで自動記録
+response = api_request("GET", "https://jsonplaceholder.typicode.com/users/1")
+print(response.json())
+```
+
+実行すると `./traces/` ディレクトリにトレースファイルが生成されます。
+
+### ステップ 3: エミュレーション環境の構築
+
+```bash
+# 基本的な構築（スキーマのみ）
+skeleton build-env --trace-dir ./traces --output-dir ./skel_env
+
+# LLM で型推論（推奨）
+export OPENAI_API_KEY=your-key
+skeleton build-env --infer-types
+
+# プライバシー重視モード（値を LLM に送信しない）
+skeleton build-env --infer-types --key-names-only
+```
+
+`./skel_env/` に `.skel.json` ファイルが生成されます。
+
+### ステップ 4: オフライン再現（EMULATE モード）
+
+```python
+from skeleton_request import emulate, EmulationEnv
+
+env = EmulationEnv.load_from_dir("./skel_env")
+
+@emulate(env)
+def api_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
+
+# ネットワーク通信なしで動作！
+response = api_request("GET", "https://jsonplaceholder.typicode.com/users/1")
+print(response.json())  # スキーマに基づくモックデータ
+```
+
+完了！これでオフライン環境でも API レスポンスを再現できます。
+
+---
+
+## インストール
+
+### 必須要件
+
+- **Python 3.13 以上**
+- `requests` ライブラリ
+- OpenAI API 互換の LLM アクセス（型推論機能使用時のみ）
+
+### GitHub から（推奨）
+
+```bash
+# 最新版
+pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git
+
+# 特定バージョン
+pip install git+https://github.com/YOUR_USERNAME/skeleton-request.git@v0.1.0
+```
+
+### ソースから
+
+```bash
+git clone https://github.com/YOUR_USERNAME/skeleton-request.git
+cd skeleton-request
+
+# uv を使用（Python 3.13+）
+uv sync
+
+# または pip
+pip install -e .
+```
+
+### 開発用インストール
+
+```bash
+# 開発用依存関係を含む
+uv sync --extra dev
+
+# または pip
+pip install -e ".[dev]"
+```
+
+---
+
+## 基本的な使い方
+
+### TRACE モード: API 呼び出しの記録
+
+#### パターン 1: 関数ラッパー方式（推奨）
+
+```python
+import requests
+from skeleton_request import trace
+
+@trace
+def my_request(method, url, **kwargs):
+    """requests.request() のトレース版ラッパー"""
+    return requests.request(method, url, **kwargs)
+
+# 既存コードで my_request を使用
+response = my_request("GET", "https://api.example.com/users/1")
+response = my_request("POST", "https://api.example.com/posts",
+                      json={"title": "test", "body": "content"})
+```
+
+#### パターン 2: 個別関数デコレート方式
+
+```python
+@trace
+def fetch_user(user_id: int):
+    """特定のユーザー情報を取得"""
+    return requests.get(f"https://api.example.com/users/{user_id}")
+
+@trace
+def create_post(title: str, body: str):
+    """投稿を作成"""
+    return requests.post("https://api.example.com/posts",
+                        json={"title": title, "body": body})
+
+# 通常通り呼び出すだけで記録される
+user = fetch_user(1)
+post = create_post("Hello", "World")
+```
+
+#### トレースの保存
+
+```python
+from skeleton_request import TraceStore
+
+# 明示的にフラッシュ（通常は自動）
+TraceStore.current().flush()
+
+# トレースファイルの場所を確認
+trace_file = TraceStore.current().get_trace_file()
+print(f"Saved to: {trace_file}")
+```
+
+### EMULATE モード: オフライン再現
+
+#### 基本的なエミュレーション
+
+```python
+from skeleton_request import emulate, EmulationEnv
+
+# エミュレーション環境をロード
+env = EmulationEnv.load_from_dir("./skel_env")
+
+@emulate(env)
+def my_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
+
+# ネットワークアクセスなしで動作
+response = my_request("GET", "https://api.example.com/users/1")
+print(response.json())  # {"id": "", "name": "", "email": "", ...}
+```
+
+#### リアルな値を LLM で生成
+
+```python
+from skeleton_request import emulate, EmulationEnv, LLMProvider
+
+env = EmulationEnv.load_from_dir("./skel_env")
+llm = LLMProvider()
+
+@emulate(env, simulate_value=True, llm_provider=llm)
+def my_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
+
+# よりリアルなダミーデータが返る
+response = my_request("GET", "https://api.example.com/users/1")
+print(response.json())
+# {"id": "550e8400-e29b-41d4-a716-446655440000",
+#  "name": "John Doe",
+#  "email": "john.doe@example.com", ...}
+```
+
+#### フォールバック設定
+
+```python
+@emulate(env, fallback_original=True)
+def my_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
+
+# スキーマがない場合、実際の API にフォールバック
+response = my_request("GET", "https://api.example.com/new-endpoint")
+```
+
+---
+
+## CLI リファレンス
+
+skeleton-request は 2 つの CLI コマンドを提供します。
+
+### `skeleton build-env`
+
+トレースファイルからエミュレーション環境を構築します。
+
+**基本構文:**
+```bash
+skeleton build-env [OPTIONS]
+```
+
+**オプション:**
+
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--trace-dir PATH` | トレースファイルのディレクトリ | `./traces` |
+| `--output-dir PATH` | 出力先ディレクトリ | `./skel_env` |
+| `--infer-types` | LLM で型推論を実行 | false |
+| `--key-names-only` | フィールド名のみから型推論（値を LLM に送信しない） | false |
+| `--delete-traces` | 構築後にトレースファイルを削除 | false |
+
+**使用例:**
+
+```bash
+# 基本的な使い方（スキーマのみ）
+skeleton build-env --trace-dir ./traces --output-dir ./skel_env
+
+# LLM で型推論（値も使用）
+export OPENAI_API_KEY=your-key
+skeleton build-env --infer-types
+
+# プライバシー重視（キー名のみ）
+skeleton build-env --infer-types --key-names-only
+
+# トレース削除（機密情報対策）
+skeleton build-env --infer-types --delete-traces
+```
+
+### `skeleton gen-docs`
+
+`.skel.json` ファイルから Markdown 形式の API 仕様書を生成します。
+
+**基本構文:**
+```bash
+skeleton gen-docs [OPTIONS]
+```
+
+**オプション:**
+
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `--spec-dir PATH` | `.skel.json` ファイルのディレクトリ | `./skel_env` |
+| `--output-dir PATH` | 出力先ディレクトリ | `./docs` |
+
+**使用例:**
+
+```bash
+# 基本的な使い方
+skeleton gen-docs --spec-dir ./skel_env --output-dir ./docs
+
+# カスタムディレクトリ
+skeleton gen-docs --spec-dir ./my_specs --output-dir ./api_docs
+```
+
+**生成されるドキュメント:**
+- エンドポイント情報（メソッド、パスパターン、クエリパラメータ）
+- リクエスト/レスポンススキーマのツリー表示
+- 推論された型情報とフィールド説明
+
+---
+
+## 設定
+
+### 環境変数
+
+skeleton-request は環境変数で動作をカスタマイズできます。
+
+| 変数名 | 説明 | デフォルト値 | 設定例 |
+|-------|------|------------|--------|
+| `SKELETON_MODE` | 動作モード: `trace` \| `emulate` \| `off` | `trace` | `export SKELETON_MODE=emulate` |
+| `SKELETON_TRACE_DIR` | トレースファイルの保存先 | `./traces` | `export SKELETON_TRACE_DIR=/tmp/traces` |
+| `SKELETON_ENV_DIR` | `.skel.json` ファイルのディレクトリ | `./skel_env` | `export SKELETON_ENV_DIR=./my_env` |
+| `OPENAI_API_KEY` | OpenAI API キー | - | `export OPENAI_API_KEY=sk-...` |
+| `OPENAI_BASE_URL` | カスタム API ベース URL | - | `export OPENAI_BASE_URL=https://...` |
+| `SKELETON_LLM_PROVIDER` | LLM プロバイダー: `openai` \| `azure` \| `gemini` | `openai` | `export SKELETON_LLM_PROVIDER=azure` |
+| `SKELETON_LLM_MODEL` | 使用するモデル名 | `gpt-4.1` | `export SKELETON_LLM_MODEL=gpt-4.1` |
+| `SKELETON_LLM_TEMPERATURE` | LLM の温度パラメータ | `0.0` | `export SKELETON_LLM_TEMPERATURE=0.0` |
+| `SKELETON_LLM_MAX_TOKENS` | 最大トークン数 | `2000` | `export SKELETON_LLM_MAX_TOKENS=2000` |
+
+### モード切替
+
+#### TRACE モード（デフォルト）
+
+```bash
+export SKELETON_MODE=trace
+export SKELETON_TRACE_DIR=./traces
+python your_app.py
+```
+
+#### EMULATE モード
+
+```bash
+export SKELETON_MODE=emulate
+export SKELETON_ENV_DIR=./skel_env
+python your_app.py  # ネットワーク通信なし
+```
+
+#### OFF モード（パススルー）
+
+```bash
+export SKELETON_MODE=off
+python your_app.py  # 通常の requests 動作
+```
+
+### LLM プロバイダー設定
+
+#### OpenAI
+
+```bash
+export SKELETON_LLM_PROVIDER=openai
+export OPENAI_API_KEY=sk-...
+export SKELETON_LLM_MODEL=gpt-4o-mini
+```
+
+#### Azure OpenAI（国内リージョン対応）
+
+```bash
+export SKELETON_LLM_PROVIDER=azure
+export OPENAI_API_KEY=your-azure-key
+export OPENAI_BASE_URL=https://your-resource.openai.azure.com/
+export SKELETON_LLM_MODEL=gpt-4
+```
+
+#### Google Gemini
+
+```bash
+export SKELETON_LLM_PROVIDER=gemini
+export OPENAI_API_KEY=your-gemini-key
+export OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/
+export SKELETON_LLM_MODEL=gemini-pro
+```
+
+---
+
+## 高度な使い方
+
+### エンドポイント正規化
+
+URL パスは自動的にパターン化されます:
+- `/users/123` → `/users/{id}`
+- `/orders/550e8400-e29b-41d4-a716-446655440000` → `/orders/{uuid}`
+- `/items/abc123def` → `/items/{id}`
+- クエリパラメータはキー名のみ記録
+
+### マルチステータスコード対応
+
+```python
+# 異なるステータスコードを記録
+response_200 = my_request("GET", "/api/users/1")  # 200 OK
+response_404 = my_request("GET", "/api/users/999")  # 404 Not Found
+
+# build-env 後、両方のレスポンススキーマが保存される
+# EMULATE モードでは 200 を優先的に返す
+```
+
+### プライバシー保護の実践
+
+#### レベル 1: 基本保護（値は一時保存）
+
+```bash
+# トレースに値が含まれるが、build-env 後に削除可能
+skeleton build-env --delete-traces
+```
+
+#### レベル 2: LLM に値を送信しない
+
+```bash
+# キー名のみから型推論（精度は下がる）
+skeleton build-env --infer-types --key-names-only
+```
+
+#### レベル 3: LLM を使用しない
+
+```bash
+# 型推論なし、構造のみ
+skeleton build-env
+```
+
+### カスタム LLM プロバイダーの実装
+
+```python
+from skeleton_request.llm import LLMProvider, FieldTypeInfo
+
+class MyCustomLLM(LLMProvider):
+    def infer_types(
+        self,
+        endpoint_key,
+        schema_node,
+        sample_values=None,
+    ) -> dict[str, FieldTypeInfo]:
+        # カスタムロジック
+        return {
+            "user.email": FieldTypeInfo(
+                path="user.email",
+                json_type="string",
+                domain_type="email",
+                description="User email address",
+                required=True
+            ),
+        }
+
+# 使用
+llm = MyCustomLLM()
+env = EmulationEnv.load_from_dir("./skel_env")
+
+@emulate(env, simulate_value=True, llm_provider=llm)
+def my_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
+```
+
+### スキーマの手動編集
+
+`.skel.json` ファイルは手動編集可能です:
 
 ```json
 {
   "version": 1,
   "endpoint": {
-    "method": "POST",
+    "method": "GET",
     "path_pattern": "/users/{id}",
-    "query_keys": ["verbose"]
+    "query_keys": []
   },
-  "request_schema": { ... SchemaNode as JSON ... },
+  "request_schema": null,
   "response_schemas_by_status": {
-    "200": { ... },
-    "400": { ... }
+    "200": {
+      "kind": "object",
+      "children": {
+        "id": {"kind": "string"},
+        "name": {"kind": "string"},
+        "email": {"kind": "string"}
+      }
+    }
   },
-  "type_hints": {
-    "body.user_id": {"domain_type": "uuid"},
-    "body.created_at": {"domain_type": "datetime_iso8601"}
+  "response_type_hints": {
+    "200": [
+      {
+        "path": "id",
+        "json_type": "string",
+        "domain_type": "uuid",
+        "description": "User ID",
+        "required": true
+      }
+    ]
   }
 }
 ```
 
-#### ② API 仕様解説ドキュメント（Markdown など）
+---
 
-`/users/{id}` ごとに `users__id__POST.md` みたいに保存：
+## 実例
 
-* エンドポイント概要
-* リクエスト JSON のツリー（key と推論された型）
-* レスポンス JSON のツリー
-* フィールドごとの説明（LLM が生成）
+### 基本的な使用例
 
-これで「仕様書」と「エミュレータ用スキーマ」のペアが完成。
+[examples/basic_usage.py](examples/basic_usage.py) - JSONPlaceholder API を使った基本的なトレース & エミュレーション
+
+```bash
+# TRACE モード
+python examples/basic_usage.py trace
+
+# EMULATE モード
+python examples/basic_usage.py emulate
+```
+
+### 実際の API 例: The Cat API
+
+[examples/test_cat_api.py](examples/test_cat_api.py) - The Cat API の 3 つのエンドポイントをトレース
+
+```bash
+# .env.local に CAT_API_KEY を設定後
+uv run python examples/test_cat_api.py --both
+
+# エミュレーション環境を構築
+skeleton build-env --infer-types
+skeleton gen-docs
+```
+
+詳細は [examples/README.md](examples/README.md) を参照してください。
+
+### 主要コンポーネント
+
+**SchemaNode** (`schema.py`)
+- JSON 構造を値なしで表現する再帰的ツリー
+- `extract_schema()` で JSON → SchemaNode
+- `merge()` で複数トレースを統合
+
+**TraceRecord** (`tracing.py`)
+- 1 回の API 呼び出しのスナップショット
+- EndpointKey（正規化されたエンドポイント識別子）
+- リクエスト/レスポンススキーマ
+
+**EmulationSpec** (`cli.py`)
+- エンドポイントごとの集約されたスキーマ
+- ステータスコード別のレスポンススキーマ
+- 型ヒント情報
+
+詳細は [CLAUDE.md](CLAUDE.md) を参照してください。
+
+### アップデート予定
+
+- GraphQL 対応
+- gRPC 対応
 
 ---
 
-## 4. EMULATE モード (@skeleton.emulate)
+## FAQ
 
-### 4-1. EmulationEnv のロード
+### Q1: 実際の値は本当に保存されないのですか？
 
-```python
-class EmulationEnv:
-    def __init__(self, spec_by_endpoint: dict[EndpointKey, EmulationSpec]):
-        self.spec_by_endpoint = spec_by_endpoint
+**A:** トレースファイル（`.ndjson`）には一時的に値が含まれますが、これは型推論の精度向上のためです。`skeleton build-env --infer-types` 実行後は、トレースファイルを `--delete-traces` オプションで削除できます。最終的な `.skel.json` には**スキーマと型情報のみ**が保存されます。
 
-    @classmethod
-    def load_from_dir(cls, path: str) -> "EmulationEnv":
-        # path 以下の *.skel.json を全部読み込んで dict に
-        ...
-```
+完全に値を保存したくない場合は `--key-names-only` オプションを使用してください。
 
-### 4-2. ResponseEmulated
+### Q2: どの LLM プロバイダーが使えますか？
 
-requests.Response ライクな簡易クラス：
+**A:** OpenAI API 互換のプロバイダーに対応しています:
+- OpenAI（GPT-4、GPT-4o-mini など）
+- Azure OpenAI（国内リージョン対応）
+- Google Gemini（via OpenAI 互換 API）
+- その他 OpenAI 互換エンドポイント
 
-```python
-class ResponseEmulated:
-    def __init__(self, status_code: int, json_body: Any, headers: dict[str, str] | None = None):
-        self.status_code = status_code
-        self._json = json_body
-        self.headers = headers or {}
+カスタム LLM プロバイダーも `LLMProvider` インターフェースを実装することで追加可能です。
 
-    def json(self):
-        return self._json
+### Q3: 既存のコードへの影響はどのくらいですか？
 
-    @property
-    def text(self):
-        return json.dumps(self._json)
-```
+**A:** 最小限です。`@trace` または `@emulate` デコレータを追加するだけで動作します。`requests.request()` の署名や戻り値は変更しません。環境変数 `SKELETON_MODE=off` でいつでも無効化できます。
 
-### 4-3. @emulate デコレータの挙動
+### Q4: エミュレートできないエンドポイントがある場合は？
+
+**A:** `fallback_original=True` オプションを使用すると、スキーマがない場合に実際の API にフォールバックします:
 
 ```python
-def emulate(env: EmulationEnv, simulate_value: bool = False, llm_provider: LLMProvider | None = None):
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            method, url = _extract_method_url(args, kwargs)
-            endpoint_key = build_endpoint_key(method, url, kwargs.get("params"))
-
-            spec = env.lookup(endpoint_key)
-            if not spec:
-                # 足りないときの方針：
-                # - 例外を投げる
-                # - fallback_original=True の場合 only func(*args, **kwargs)
-                raise RuntimeError(f"No emulation spec for {endpoint_key}")
-
-            # 適当な status_code を選択（通常は 200 優先）
-            status = choose_status_code(spec)
-
-            # スキーマから JSON を生成
-            if simulate_value and llm_provider:
-                body = generate_json_with_llm(spec, status, llm_provider)
-            else:
-                body = generate_blank_json(spec, status)  # 型に応じたダミー値
-
-            return ResponseEmulated(status_code=status, json_body=body)
-        return wrapper
-    return decorator
+@emulate(env, fallback_original=True)
+def my_request(method, url, **kwargs):
+    return requests.request(method, url, **kwargs)
 ```
 
-### 4-4. 値の生成戦略
+### Q5: requests 以外の HTTP クライアントに対応していますか？
 
-* `simulate_value=False` の場合：
+**A:** 現在は `requests` ライブラリのみ対応しています。`httpx`、`aiohttp` などへの対応はロードマップに含まれています（v0.4.0 以降）。
 
-  * `string` → `""`
-  * `number` → `0`
-  * `boolean` → `False`
-  * `array` → 空配列 or 1要素のスケルトン（設定で選択）
-* `simulate_value=True` の場合：
+### Q6: 認証情報はどう扱われますか？
 
-  * `SchemaNode` + `type_hints` を LLM に渡して「架空データ」を生成
-  * 実データは一切渡さない（キー名と型だけ）
+**A:** ヘッダー情報（API キーなど）はデフォルトで記録されません。エンドポイントパターンと JSON 構造のみ記録されます。セキュリティ上の理由から、認証情報を含むヘッダーはトレース対象に含まれません。
 
----
+### ライセンス
 
-## 5. コンフィグと DX（開発体験）
-
-### 5-1. モード切り替え
-
-* 環境変数でスイッチできるようにしておくと楽：
-
-```python
-MODE = os.getenv("SKELETON_MODE", "trace")  # "trace" | "emulate" | "off"
-```
-
-* `__init__.py` で:
-
-```python
-if MODE == "trace":
-    request = trace(_base_request)
-elif MODE == "emulate":
-    env = EmulationEnv.load_from_dir(os.getenv("SKELETON_ENV_DIR", "./skel_env"))
-    request = emulate(env, simulate_value=...) (_base_request)
-else:
-    request = _base_request
-```
-
-のようにすれば、アプリ側は `from my_http import request` を呼ぶだけで、モード切り替えが可能。
-
-### 5-2. CLI
-
-`python -m skeleton` or `skeleton` コマンドで：
-
-* `skeleton collect` : trace ファイルを scan して集約
-* `skeleton build-env` : EmulationSpec を .skel.json として出力
-* `skeleton gen-docs` : Markdown 仕様書を生成（LLMProvider 必須）
-
----
-
-## 6. セキュリティ・プライバシー注意点
-
-* 保存するのは **キー名・パスパターン・ステータスコード**だけで、値は記録しない
-* URL ホスト名・ヘッダの一部はマスク or 保存しない
-* LLM に渡す情報も「キー名・型情報・エンドポイントパス」のみに制限
-* トレースファイルは暗号化保存をオプション提供（client 環境のポリシーに合わせる）
-
----
-
-## 7. 実装ステップ（ロードマップ）
-
-1. **MVP**
-
-   * `SchemaNode` + `extract_schema` + `merge` 実装
-   * `TraceRecord` / `TraceStore` / `@trace` 実装
-   * NDJSON への出力
-2. **集約ツール**
-
-   * CLI で NDJSON → EmulationSpec 集約
-   * `.skel.json` の出力
-3. **エミュレーション**
-
-   * `EmulationEnv` + `ResponseEmulated`
-   * `@emulate` + `generate_blank_json`
-4. **LLM 連携**
-
-   * `LLMProvider` 抽象
-   * Schema をフラット化して LLM に渡し、`type_hints` を生成
-   * Markdown 仕様書を生成
-5. **DX 強化**
-
-   * 環境変数によるモード切替
-   * ログ（どのエンドポイントがエミュレーションされたかの可視化）
-   * テスト（requests と互換の挙動か、JSON スキーマが期待通りか）
-
----
-
-ここまでのプランで、
-
-* 「値は絶対保存しない」ポリシー
-* 顧客環境内 LLM を使った型推論
-* decorator ベースで既存コードに薄く差し込む構造
-
-は全部満たせるはずです。
-
-この後には、`SchemaNode.extract/merge` の具体的な実装と、`path_pattern` の正規化ロジックの設計を行う。
+MIT License
