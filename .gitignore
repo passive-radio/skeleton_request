@@ -14,7 +14,9 @@ env/
 # skeleton_request specific
 traces/
 skel_env/
+skel_env_with_values/
 docs/
+docs_with_types/
 *.ndjson
 
 # IDE
