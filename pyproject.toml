@@ -30,7 +30,7 @@ Documentation = "https://github.com/passive-radio/skeleton_request#readme"
 
 [project.optional-dependencies]
 dev = [
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [project.scripts]
